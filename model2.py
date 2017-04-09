@@ -4,15 +4,72 @@ import matplotlib.pyplot as plt
 import matplotlib
 import pandas as pd 
 import sklearn
+import os
+import sys
+import cv2
+import random
 from sklearn.model_selection import KFold
 
-# clean the data and get these values
+image_files = []
+itype = "png"
+image_dir = "cohn-kanade-images"
+label_dir = "Emotion"
+size = (224, 224)
 labels_count = 7
-x = tf.placeholder("float", shape=[None, image_pixels])
-y_ = tf.placeholder("float", shape=[None, labels_count])
-# keyNote: image should be cropped to 224x224 pixels
 image_width = 224
 image_height = 224
+final_image_array = []
+labels = np.array([])
+labels = labels.astype(np.uint8)
+image_pixels = 0
+def build_data():
+	global image_files, itype, image_dir, label_dir, size, final_image_array, labels
+	for outer_folder in os.listdir(image_dir):
+		if os.path.isdir(image_dir + '/' + outer_folder):
+			for inner_folder in os.listdir(image_dir + '/' + outer_folder):
+				if os.path.isdir(image_dir + '/' + outer_folder + '/' + inner_folder):
+					for input_file in os.listdir(image_dir + '/' + outer_folder + '/' + inner_folder):
+						if input_file.split('.')[1] != itype:
+							break
+						label_file = label_dir+'/'+outer_folder+'/'+inner_folder+'/'+input_file[:-4] + '_emotion.txt'
+						if os.path.isfile(label_file):
+							read_file = open(label_file, 'r')
+							label = int(float(read_file.readline()))
+							for i in range(-1, -6, -1):
+								image_file = sorted(os.listdir(image_dir + '/' + outer_folder + '/' + inner_folder))[i]
+								if image_file.split('.')[1] == itype:
+									image_files.append((image_dir+'/'+outer_folder+'/'+inner_folder+'/'+image_file, label))
+								neutral_file = sorted(os.listdir(image_dir+'/'+outer_folder+'/'+inner_folder))[0]
+								if neutral_file.split('.')[1] != itype:
+									neutral_file = sorted(os.listdir(image_dir+'/'+outer_folder+'/'+inner_folder))[1]
+								image_files.append((image_dir+'/'+outer_folder+'/'+inner_folder+'/'+neutral_file, 0))
+
+	for imagefile in image_files:
+		imagefile = image_files[0]
+		name = imagefile[0]
+		label = imagefile[1]
+		gray_img = cv2.imread(name, cv2.IMREAD_GRAYSCALE)
+		resized_gray_img = cv2.resize(gray_img, size)
+		resized_gray_img = resized_gray_img.astype(np.float)
+		final_image_array.append(resized_gray_img.ravel())
+		one_hot_arr = np.zeros((1, 8))
+		one_hot_arr[0][label] = 1
+		one_hot_arr = one_hot_arr.astype(np.uint8)
+		labels = np.concatenate((one_hot_arr, labels))
+
+def divide_data(test_percent=0.1):
+    test_length = int(round(test_percent * len(final_image_array)))
+    shuffled = final_image_array[:]
+    random.shuffle(shuffled)
+    training_data = shuffled[test_length:]
+    testing_data = shuffled[:test_length]
+    return training_data, testing_data
+
+build_data()
+image_pixels = final_image_array[0].shape[0]
+
+x = tf.placeholder("float", shape=[None, image_pixels])
+y_ = tf.placeholder("float", shape=[None, labels_count])
 
 
 batch_size = 128
@@ -103,8 +160,6 @@ def neural_network_model(x):
 	W_out = weight_init([8192, labels_count])
 	b_out = bias_init([labels_count])
 	y = tf.nn.softmax(tf.matmul(fully_connected_drop, W_out)+b_out)
-	# 7 x 1 x 1 and not 11 x 1 x 1
-	# 11 x 1 x 1 didn't make much sense!
 	return y
 
 def train_neural_network():
@@ -113,5 +168,4 @@ def train_neural_network():
 	cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(prediction,y))
 	#default learn-rate: 0.001 or 1e-03
 	optimizer = tf.train.AdamOptimizer().minimize(cost)
-	
-	
+
